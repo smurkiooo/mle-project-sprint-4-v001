@@ -1,46 +1,37 @@
-import numpy as np
-import pandas as pd
-from recommendations_service import Recommendations
-
-rec_store = Recommendations()
-
-rec_store.load(
-    "personal",
-    # ваш код здесь #,
-    columns=["user_id", "item_id", "rank"],
-)
-rec_store.load(
-    "default",
-    # ваш код здесь #,
-    columns=["item_id", "rank"],
-)
-
-rec_store.get(user_id=100, k=5)
-
-
-@app.post("/recommendations")
-async def recommendations(user_id: int, k: int = 100):
-    """
-    Возвращает список рекомендаций длиной k для пользователя user_id
-    """
-
-    recs = rec_store.get(user_id, k)
-
-    return {"recs": recs}
-
-
+import sys
+import time
 import requests
 
-recommendations_url = "http://127.0.0.1:8000"
+def test_cold_user():
+    """тест для пользователя без персональных рекомендаций, то есть должны вернуться дефолтные (топ-популярные)"""
+    resp = requests.post("http://127.0.0.1:8000/recommendations",params={"user_id": 999999999, "k": 5})
+    assert resp.status_code == 200
+    recs = resp.json()["recs"]
+    assert len(recs) > 0
+    print(f"Тест 1 (нет перс. рек.): {recs}")
 
-headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
-params = {"user_id": 1353637, 'k': 3}
 
-resp = requests.post(recommendations_url + "/recommendations", headers=headers, params=params)
-if resp.status_code == 200:
-    recs = resp.json()
-else:
-    recs = []
-    print(f"status code: {resp.status_code}")
-    
-print(recs)
+def test_warm_user_no_history():
+    """тест для пользователя с персональными рекомендациями, но без онлайн-истории. должны вернуться офлайнрекомендации"""
+    resp = requests.post("http://127.0.0.1:8000/recommendations",params={"user_id": 4, "k": 5})
+    assert resp.status_code == 200
+    recs = resp.json()["recs"]
+    assert len(recs) > 0
+    print(f"Тест 2 : {recs}")
+
+
+def test_warm_user_with_history():
+    """тест для пользователя с персональными рекомендациями и онлайн-историей. Должны вернуться смешанные рекомендации"""
+    requests.post("http://127.0.0.1:8000/put_event", params={"user_id": 4, "item_id": 99262})
+    resp = requests.post("http://127.0.0.1:8000/recommendations", params={"user_id": 4, "k": 10})
+    assert resp.status_code == 200
+    recs = resp.json()["recs"]
+    assert len(recs) > 0
+    print(f"Тест 3 (перс. рек. + история): {recs}")
+
+
+if __name__ == "__main__":
+    test_cold_user()
+    test_warm_user_no_history()
+    test_warm_user_with_history()
+    print("Все тесты  успешно прошлись")
